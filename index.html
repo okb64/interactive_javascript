@@ -17,42 +17,59 @@ lobby = {
   test: 0,
   x: 10, xp:0,
   y: 10, yp:0,
-  win1: null,
-  win2: null,
-  text_buffer:"",
   grabbing_window: false,
   resizing_window: false,
+  windows:[],
+  focused_window: null,
   keyp: function(k){
-    if(k == "Enter"){
-      try{
-        eval(this.text_buffer);
-      }catch(e){
-        this.text_buffer = e.message;
-      }
-    }else if(k == "Backspace"){
-      this.text_buffer = this.text_buffer.slice(0, -1)
-    }else if(k == "Shift"){
-    }else if(k == "Control"){
-    }else if(k == "Alt"){
-    }else if(k == "AltGraph"){
-    }else if(k == "1"){
-      if(this.resizing_window)
-      this.resizing_window = false;
-      else if(this.win2.cursor_inside()) this.resizing_window = true;
-    }else{
-      this.text_buffer = this.text_buffer + k
-    }
+    if(lobby.focused_window != null)
+      lobby.focused_window.keyp(k);
   },
   mouse_click: function(){
-    if(this.grabbing_window){
+    let window_clicked = false;
+    if(this.resizing_window){
+      this.resizing_window = false;
+      window_clicked = true;
+    }else if(this.grabbing_window){
       this.grabbing_window = false;
-    }else if(this.win2.cursor_inside()){
-      this.grabbing_window = true;
+      window_clicked = true;
+    }else{
+      var clicked_window = null;
+      var clicked_window_index = 0;
+      this.windows.forEach(function(win, index, arr){
+        if(win.cursor_inside()){
+          if(clicked_window != null &&
+             index > clicked_window_index){
+              clicked_window_index = index
+              clicked_window = win
+          }else{
+            clicked_window_index = index
+            clicked_window = win
+          }
+        }
+      })
+      if(clicked_window != null){
+        window_clicked = true;
+        if(lobby.focused_window != clicked_window){
+          lobby.focused_window = clicked_window;
+          lobby.windows.splice(clicked_window_index, 1);
+          lobby.windows = lobby.windows.concat([clicked_window]);
+        }else{
+          clicked_window.clicked();
+        }
+      }
+    }
+    if(!window_clicked){
+      if(lobby.focused_window == null){
+        new lobby.dispframe(cursor_x, cursor_y, 100, 100, "hey")
+      }else{
+        lobby.focused_window = null;
+      }
     }
   },
   disp: {
-    rect: function(a,b,c,d){
-      ctx.lineWidth = 1
+    rect: function(a,b,c,d,w){
+      ctx.lineWidth = w
       ctx.strokeStyle = "#000000"
       ctx.fillStyle = "#000000"
       ctx.strokeRect(a,b,c,d)
@@ -63,22 +80,14 @@ lobby = {
   },
   tick_loop: function(){
     this.disp.clear()
-    this.win1.display()
-    this.win2.display()
-    this.win1.x = this.xp;
-    this.win1.y = this.yp
-    this.win2.text = this.text_buffer
+    this.windows.forEach(function(win, index, arr){
+      win.display();
+    })
     this.draw_cursor()
-    if(this.grabbing_window){
-      this.win2.x = cursor_x;
-      this.win2.y = cursor_y;
-    }
-    if(this.resizing_window){
-      this.win2.size_x = cursor_x - this.win2.x;
-      this.win2.size_y = cursor_y - this.win2.y;
-    }
-    this.xp+=0.5
-    this.yp+=0.5
+    //update loop
+    this.windows.forEach(function(win, index, arr){
+      win.update();
+    })
   },
   draw_cursor: function(){
     ctx.fillStyle = "#000000"
@@ -100,7 +109,11 @@ lobby = {
       ctx.fillRect(this.x, this.y, this.size_x, this.size_y)
       ctx.fillStyle = "#000000"
       ctx.strokeStyle = "#000000"
-      lobby.disp.rect(this.x, this.y, this.size_x, this.size_y)
+      let w = 0
+      if(lobby.focused_window == this){
+        w = 2
+      }else w = 1;
+      lobby.disp.rect(this.x, this.y, this.size_x, this.size_y, w)
       var y_pos = 0
       var x_pos = 0
       for(let i=0; i<this.text.length; i++){
@@ -116,7 +129,7 @@ lobby = {
           x_pos += 8
         }
       }
-      if(y_pos + 15 < this.size_y)
+      if(y_pos + 15 < this.size_y && lobby.focused_window == this)
         ctx.fillRect(x_pos + this.x + 4,
                      y_pos + this.y + 2, 8, 14);
     },
@@ -128,6 +141,46 @@ lobby = {
     },
     print: function(text){
       this.text += text;
+    },
+    update: function(){
+      if(lobby.focused_window == this){
+        if(lobby.grabbing_window){
+          this.x = cursor_x;
+          this.y = cursor_y;
+        }
+        if(lobby.resizing_window){
+          this.size_x = cursor_x - this.x;
+          this.size_y = cursor_y - this.y;
+        }
+      }
+    },
+    clicked: function(){
+      if(this.x + this.size_x
+         - cursor_x < 20 &&
+          this.y + this.size_y
+         - cursor_y < 20){
+        lobby.resizing_window = true;
+      }else{
+        lobby.grabbing_window = true;
+      }
+    },
+    keyp: function(k){
+      if(k == "Enter"){
+        try{
+          this.text = String(eval(this.text));
+        }catch(e){
+          this.text = e.message;
+        }
+      }else if(k == "Backspace"){
+        this.text = this.text.slice(0, -1)
+      }else if(k == "Shift"){
+      }else if(k == "Control"){
+      }else if(k == "Alt"){
+      }else if(k == "AltGraph"){
+      }else if(k == "Tab"){
+      }else{
+        this.text = this.text + k
+      }
     }
   },
   dispframe: function(x, y, size_x, size_y){
@@ -139,12 +192,15 @@ lobby = {
     this.display = lobby.dispframe_shared.display;
     this.cursor_inside = lobby.dispframe_shared.cursor_inside;
     this.print = lobby.dispframe_shared.print;
+    this.update = lobby.dispframe_shared.update;
+    this.clicked = lobby.dispframe_shared.clicked;
+    this.keyp = lobby.dispframe_shared.keyp;
+    lobby.windows.push(this);
   },
   init: function(){
-    this.win1 = new this.dispframe(10, 10, 100, 100)
-    this.win1.text = "functions are real, but the light cones are unescapable"
-    this.win2 = new this.dispframe(20, 20, 400, 400)
-    
+    var win = new lobby.dispframe(10, 10, 100, 100)
+    win.text = "functions are real, but the light cones are unescapable"
+    new lobby.dispframe(20, 20, 400, 400)
   }
 }
 
